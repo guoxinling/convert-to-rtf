@@ -6,11 +6,10 @@
     <title>DeepSeek Markdown富文本转换工具</title>
     
     <!-- 依赖库 -->
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.5/purify.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -151,32 +150,6 @@
             font-size: 14px;
         }
 
-        .preview-section {
-            max-width: 1400px;
-            margin: 40px auto;
-            padding: 0 20px;
-        }
-
-        .preview-card {
-            width: 220px;
-            border-radius: 10px;
-            overflow: hidden;
-            background: white;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            transition: transform 0.2s;
-        }
-
-        .preview-card:hover {
-            transform: translateY(-3px);
-        }
-
-        .preview-image {
-            width: 100%;
-            height: 280px;
-            object-fit: cover;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-        }
-
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
@@ -279,22 +252,9 @@
                 <button onclick="generateLongImage()">
                     <i class="fas fa-image"></i>生成长图
                 </button>
-                <button onclick="generateSplitImages()">
-                    <i class="fas fa-copy"></i>分段图片
-                </button>
             </div>
             <div id="output"></div>
         </div>
-    </div>
-
-    <div class="preview-section">
-        <h3>📷 图片预览</h3>
-        <div class="toolbar">
-            <button onclick="downloadAllImages()">
-                <i class="fas fa-download"></i>打包下载全部
-            </button>
-        </div>
-        <div id="imagePreviews" class="image-previews"></div>
     </div>
 
     <div id="richTextClipboard" class="rich-text-clipboard"></div>
@@ -302,8 +262,6 @@
     <script>
     // 配置常量
     const XHS_WIDTH = 1242;
-    const XHS_HEIGHT = 1660;
-    let currentImages = { long: null, pages: [] };
 
     // 初始化
     document.addEventListener('DOMContentLoaded', () => {
@@ -384,7 +342,7 @@
         }
     }
 
-    // 图片生成功能
+    // 图片生成功能（直接下载）
     async function generateLongImage() {
         const loader = showLoader('正在生成图片...');
         try {
@@ -412,122 +370,20 @@
             });
             
             clone.remove();
-            currentImages.long = canvas;
-            showImagePreview(canvas, 'long');
+            
+            // 直接触发下载
+            canvas.toBlob(blob => {
+                if (typeof saveAs === 'function') {
+                    saveAs(blob, `deepseek-image-${Date.now()}.png`);
+                } else {
+                    alert('文件保存功能不可用，请检查FileSaver库是否正常加载');
+                }
+            });
         } catch (err) {
             alert('长图生成失败: ' + err.message);
         } finally {
             loader.remove();
         }
-    }
-
-    async function generateSplitImages() {
-        const loader = showLoader('正在生成分页图片...');
-        try {
-            const output = document.getElementById('output');
-            currentImages.pages = [];
-            document.getElementById('imagePreviews').innerHTML = '';
-
-            const mainClone = output.cloneNode(true);
-            mainClone.style.cssText = `
-                width: ${XHS_WIDTH}px;
-                position: absolute;
-                left: -9999px;
-                background: ${getComputedStyle(document.body).backgroundColor};
-                color: ${getComputedStyle(document.body).color};
-                padding: 40px;
-                font-size: 28px;
-                line-height: 1.8;
-            `;
-            document.body.appendChild(mainClone);
-
-            let currentPosition = 0;
-            while(currentPosition < mainClone.scrollHeight) {
-                const sectionHeight = Math.min(XHS_HEIGHT, mainClone.scrollHeight - currentPosition);
-                const section = document.createElement('div');
-                
-                section.style.cssText = `
-                    width: ${XHS_WIDTH}px;
-                    height: ${sectionHeight}px;
-                    overflow: hidden;
-                    position: relative;
-                    background: ${getComputedStyle(document.body).backgroundColor};
-                `;
-
-                const contentClone = mainClone.cloneNode(true);
-                contentClone.style.top = `-${currentPosition}px`;
-                section.appendChild(contentClone);
-
-                document.body.appendChild(section);
-                await new Promise(resolve => requestAnimationFrame(resolve));
-                
-                const canvas = await html2canvas(section, {
-                    useCORS: true,
-                    scale: 2,
-                    windowWidth: XHS_WIDTH,
-                    windowHeight: sectionHeight,
-                    backgroundColor: null
-                });
-                
-                section.remove();
-                currentImages.pages.push(canvas);
-                showImagePreview(canvas, 'page', currentImages.pages.length);
-                currentPosition += sectionHeight;
-            }
-            mainClone.remove();
-        } catch (err) {
-            alert('分页图生成失败: ' + err.message);
-        } finally {
-            loader.remove();
-        }
-    }
-
-    // 图片预览管理
-    function showImagePreview(canvas, type, index = 0) {
-        const previews = document.getElementById('imagePreviews');
-        const card = document.createElement('div');
-        card.className = 'preview-card';
-        card.innerHTML = `
-            <img src="${canvas.toDataURL('image/png')}" 
-                 class="preview-image"
-                 alt="${type === 'long' ? '长图预览' : `第${index}页预览`}">
-            <button class="download-btn" 
-                    onclick="downloadSingleImage('${type}', ${index})">
-                <i class="fas fa-download"></i> 下载
-            </button>
-        `;
-        previews.appendChild(card);
-    }
-
-    // 下载功能
-    function downloadSingleImage(type, index = 0) {
-        const canvas = type === 'long' ? currentImages.long : currentImages.pages[index - 1];
-        if (canvas) {
-            canvas.toBlob(blob => {
-                saveAs(blob, `deepseek-${type}-${Date.now()}.png`);
-            });
-        }
-    }
-
-    function downloadAllImages() {
-        if (!currentImages.long && currentImages.pages.length === 0) {
-            alert('请先生成图片');
-            return;
-        }
-
-        const zip = new JSZip();
-        if (currentImages.long) {
-            const data = currentImages.long.toDataURL().split(',')[1];
-            zip.file("complete-image.png", data, {base64: true});
-        }
-        currentImages.pages.forEach((canvas, i) => {
-            const data = canvas.toDataURL().split(',')[1];
-            zip.file(`page-${i+1}.png`, data, {base64: true});
-        });
-
-        zip.generateAsync({type: "blob"}).then(blob => {
-            saveAs(blob, `deepseek-images-${Date.now()}.zip`);
-        });
     }
 
     // 其他功能
@@ -564,7 +420,12 @@
             <body>${content}</body>
             </html>
         `], {type: 'text/html'});
-        saveAs(blob, `deepseek-export-${new Date().toISOString().slice(0,10)}.html`);
+        
+        if (typeof saveAs === 'function') {
+            saveAs(blob, `deepseek-export-${new Date().toISOString().slice(0,10)}.html`);
+        } else {
+            alert('文件保存功能不可用，请检查FileSaver库是否正常加载');
+        }
     }
 
     function insertText(text) {
